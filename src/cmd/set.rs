@@ -185,18 +185,12 @@ impl Set {
         let log = dst.frame_aof_persist(&frame).await.unwrap();
         debug!(log=?log);
 
-        let res = db.aof_persist(&log).await;
-        if res.is_ok(){
-            debug!("aof_persist is ok");
-        }else {
-            debug!("aof_persist is err");
-        }
+        let _ = db.aof_persist(&log).await;
         Ok(())
     }
 
     pub(crate) async fn cmd_load_from_aof(self,db:&Db )-> crate::Result<()> {
         db.set(self.key, self.value, self.expire);
-        debug!("in set , cmd load from aof");
         Ok(())
     }
 }

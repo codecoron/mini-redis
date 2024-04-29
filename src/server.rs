@@ -241,9 +241,8 @@ pub(crate) async fn read_frame_from_file(db:Db) -> crate::Result<Option<Frame>> 
 
         let mut cursor = Cursor::new(buffer.as_slice());
         
-        debug!(buffer=?String::from_utf8_lossy(&buffer));
+        // debug!(buffer=?String::from_utf8_lossy(&buffer));
         let maybe_frame = Frame::parse(&mut cursor);
-        debug!(frame=?maybe_frame);
         let frame = match maybe_frame {
             Ok(frame) => frame,
             _ => return Err(crate::Error::from("parse frame error")),
