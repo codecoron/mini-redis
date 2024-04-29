@@ -233,4 +233,37 @@ impl Connection {
 
         Ok(())
     }
+
+    pub async fn frame_aof_persist(&mut self,frame: &Frame) -> io::Result<BytesMut> {
+        match frame {
+            Frame::Array(val) => {
+                let mut resp = BytesMut::new();
+                resp.extend_from_slice(b"*");
+                resp.extend_from_slice(val.len().to_string().as_bytes());
+                resp.extend_from_slice(b"\r\n");
+
+                for f in &**val {
+                    let f_res = self.to_resp(f).await?;
+                    resp.extend_from_slice(&f_res);
+                }
+
+                Ok(resp)
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    pub async fn to_resp(&self,frame: &Frame) -> io::Result<Box<BytesMut>> {
+        match frame {
+            // Ok(format!("${}\r\n{}\r\n", bs.len(), bs).as_bytes().into())
+            Frame::Bulk(bs) => {
+                let mut resp = Box::new(BytesMut::new());
+                resp.extend_from_slice(format!("${}\r\n", bs.len()).as_bytes());
+                resp.extend_from_slice(&bs);
+                resp.extend_from_slice(b"\r\n");
+                Ok(resp)
+            },
+            _ => unimplemented!(),
+        }
+    }
 }

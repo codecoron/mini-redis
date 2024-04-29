@@ -108,6 +108,16 @@ impl Command {
         }
     }
 
+    pub(crate) async fn load_from_aof_file(self,db:&Db){
+        use Command::*;
+        match self {
+            Set(cmd) =>{
+                let _ = cmd.cmd_load_from_aof(db).await;
+            }
+            _ => unimplemented!()
+        }
+    }
+
     /// Returns the command name
     pub(crate) fn get_name(&self) -> &str {
         match self {

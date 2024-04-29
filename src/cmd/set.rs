@@ -126,9 +126,15 @@ impl Set {
     /// to execute a received command.
     #[instrument(skip(self, db, dst))]
     pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<()> {
+        let cmd = self.clone();
         // Set the value in the shared database state.
         db.set(self.key, self.value, self.expire);
 
+        // 1. cmd -> frame
+        // 2. frame -> bytes
+        // 3. bytes -> aof file
+        // let frame = self.into_frame();
+        cmd.cmd_persist(db,dst).await?;
         // Create a success response and write it to `dst`.
         let response = Frame::Simple("OK".to_string());
         debug!(?response);
@@ -156,6 +162,41 @@ impl Set {
             frame.push_bulk(Bytes::from("px".as_bytes()));
             frame.push_int(ms.as_millis() as u64);
         }
+        // 类似 
+        //set first jinlong
+        //frame: Array([Bulk(b"set"), Bulk(b"first"), Bulk(b"jinlong")])
+        // println!("frame: {:?}",frame);
         frame
+    }
+
+    pub fn clone(&self) -> Self {
+        Self {
+            key: self.key.clone(),
+            value: self.value.clone(),
+            expire: self.expire,
+        }
+    }
+
+    #[instrument(skip(self, db,dst))]
+    pub(crate) async fn cmd_persist(&self,db: &Db, dst: &mut Connection)-> crate::Result<()>{
+
+        let frame = self.clone().into_frame();
+        
+        let log = dst.frame_aof_persist(&frame).await.unwrap();
+        debug!(log=?log);
+
+        let res = db.aof_persist(&log).await;
+        if res.is_ok(){
+            debug!("aof_persist is ok");
+        }else {
+            debug!("aof_persist is err");
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn cmd_load_from_aof(self,db:&Db )-> crate::Result<()> {
+        db.set(self.key, self.value, self.expire);
+        debug!("in set , cmd load from aof");
+        Ok(())
     }
 }

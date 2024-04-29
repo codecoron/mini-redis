@@ -3,10 +3,13 @@
 //! Provides an async `run` function that listens for inbound connections,
 //! spawning a task per connection.
 
-use crate::{Command, Connection, Db, DbDropGuard, Shutdown};
+use crate::{Command, Connection, Db, DbDropGuard, Frame, Shutdown};
 
 use std::future::Future;
 use std::sync::Arc;
+use std::io::Cursor;
+use tokio::fs::OpenOptions;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio::time::{self, Duration};
@@ -138,6 +141,9 @@ pub async fn run(listener: TcpListener, shutdown: impl Future) {
         shutdown_complete_tx,
     };
 
+    // read from the aof_file
+    let _ = read_frame_from_file(server.db_holder.db()).await;
+
     // Concurrently run the server and listen for the `shutdown` signal. The
     // server task runs until an error is encountered, so under normal
     // circumstances, this `select!` statement runs until the `shutdown` signal
@@ -195,6 +201,59 @@ pub async fn run(listener: TcpListener, shutdown: impl Future) {
     // `Sender` instances are held by connection handler tasks. When those drop,
     // the `mpsc` channel will close and `recv()` will return `None`.
     let _ = shutdown_complete_rx.recv().await;
+}
+
+
+
+pub(crate) async fn read_frame_from_file(db:Db) -> crate::Result<Option<Frame>> {
+    // let mut array = Frame::array();
+    debug!("load disk db into memory");
+    let  file = OpenOptions::new()
+    .create(false).read(true).open("aof.txt").await?;
+    // let file = File::open("aof.txt").await?;
+    let reader = BufReader::new(file);
+
+    let mut buffers: Vec<Vec<u8>> = Vec::new();
+    let mut current_buffer: Vec<u8> = Vec::new();
+    let mut lines = reader.lines();
+
+    while let Some(line) = lines.next_line().await? {
+        // 以 * 开头的行作为新的 buffer 的开始
+        // TODO 读取将\r\n 去掉了。不能去掉
+        if line.starts_with("*") {
+            if !current_buffer.is_empty() {
+                buffers.push(current_buffer.clone());
+                current_buffer.clear();
+            }
+        }
+        
+        // 将当前行转换为字节，并添加到当前 buffer
+        current_buffer.extend_from_slice(line.as_bytes());
+        current_buffer.extend_from_slice(b"\r\n");
+    }
+
+    if !current_buffer.is_empty() {
+        buffers.push(current_buffer);
+    }
+
+    
+    for buffer in buffers {
+
+        let mut cursor = Cursor::new(buffer.as_slice());
+        
+        debug!(buffer=?String::from_utf8_lossy(&buffer));
+        let maybe_frame = Frame::parse(&mut cursor);
+        debug!(frame=?maybe_frame);
+        let frame = match maybe_frame {
+            Ok(frame) => frame,
+            _ => return Err(crate::Error::from("parse frame error")),
+        };
+        let cmd = Command::from_frame(frame)?;
+        debug!(cmd=?cmd);
+        cmd.load_from_aof_file(&db).await;
+    }
+    debug!("end load disk db into memory");
+    Ok(None)
 }
 
 impl Listener {
@@ -363,6 +422,7 @@ impl Handler {
             // peer.
             cmd.apply(&self.db, &mut self.connection, &mut self.shutdown)
                 .await?;
+            
         }
 
         Ok(())

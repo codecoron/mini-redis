@@ -1,7 +1,9 @@
 use tokio::sync::{broadcast, Notify};
 use tokio::time::{self, Duration, Instant};
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
+use tokio::fs::OpenOptions;
+use tokio::io::AsyncWriteExt;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 use tracing::debug;
@@ -216,6 +218,25 @@ impl Db {
             // its state to reflect a new expiration.
             self.shared.background_task.notify_one();
         }
+    }
+
+    /// AOF persistence
+    pub(crate) async fn aof_persist(&self, buffer: &BytesMut) -> std::io::Result<()> {
+        // write buffer to aof file
+        // open aof file  aof.txt
+        let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open("aof.txt").await?; // 打开 AOF 文件，如果不存在则创建
+
+        
+
+        // 将缓冲区内容写入 AOF 文件
+        file.write_all(&buffer).await?;
+        // 多写/r/n
+        file.write_all(b"\r\n").await?;
+        Ok(())
     }
 
     /// Returns a `Receiver` for the requested channel.

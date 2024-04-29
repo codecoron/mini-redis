@@ -145,7 +145,6 @@ async fn main() -> mini_redis::Result<()> {
             }
         }
     }
-
     Ok(())
 }
 
